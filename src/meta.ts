@@ -28,6 +28,10 @@ export const STATUS_META: Record<ItemStatus, { label: string; tone: string }> = 
   no_exchange: { label: '无人交换', tone: 'orange' },
   donated: { label: '已转捐', tone: 'pink' },
   taken_back: { label: '已带回', tone: 'gray' },
+  parent_confirm: { label: '待家长确认去向', tone: 'rose' },
+  stored_community: { label: '寄存社区', tone: 'indigo' },
+  next_event: { label: '已约下一场', tone: 'cyan' },
+  recycled: { label: '环保回收', tone: 'teal' },
   no_show: { label: '未到场', tone: 'red' },
   disputed: { label: '争议处理中', tone: 'rose' },
 }
@@ -51,7 +55,8 @@ export const INCIDENT_META: Record<IncidentType, { label: string; icon: string }
   photo_mismatch: { label: '物品与照片不符', icon: '📷' },
   child_regret: { label: '孩子现场反悔', icon: '😢' },
   value_dispute: { label: '双方价值争议', icon: '⚖️' },
-  charity_capacity: { label: '公益接收能力不足', icon: '📦' },
+  charity_capacity: { label: '公益承接超上限', icon: '📦' },
+  charity_damaged: { label: '公益破损拒收', icon: '💔' },
 }
 
 export const PHASE_META: Record<EventPhase, { label: string; desc: string }> = {
@@ -84,3 +89,18 @@ export const AGE_RANGES: { label: string; range: [number, number] }[] = [
   { label: '6–9 岁', range: [6, 9] },
   { label: '9–12 岁', range: [9, 12] },
 ]
+
+export const DECLINE_REASON_META: Record<import('./types').DonationDeclineReason, { label: string; icon: string; toIncident: import('./types').IncidentType }> = {
+  over_capacity: { label: '超过本场承接上限', icon: '📦', toIncident: 'charity_capacity' },
+  age_unfit: { label: '不在可接收年龄段', icon: '🔢', toIncident: 'charity_capacity' },
+  category_unfit: { label: '品类不在接收范围', icon: '🏷️', toIncident: 'charity_capacity' },
+  damaged: { label: '物品破损，不符合捐赠标准', icon: '💔', toIncident: 'charity_damaged' },
+  other: { label: '其他原因', icon: '📝', toIncident: 'charity_capacity' },
+}
+
+export const DISPOSAL_META: Record<import('./types').DisposalType, { label: string; icon: string; status: import('./types').ItemStatus }> = {
+  take_back: { label: '家长自行带回', icon: '🎒', status: 'taken_back' },
+  store_community: { label: '寄存到社区', icon: '🏢', status: 'stored_community' },
+  next_event: { label: '预约下一场活动', icon: '🔁', status: 'next_event' },
+  recycle: { label: '环保回收', icon: '♻️', status: 'recycled' },
+}

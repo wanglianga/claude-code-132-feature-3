@@ -1,4 +1,4 @@
-import type { DB, HistoryEntry, Item, ItemStatus, User } from './types'
+import type { DB, DisposalRecord, HistoryEntry, Item, ItemStatus, User } from './types'
 
 const H = 3600_000
 const now = Date.now()
@@ -14,7 +14,7 @@ const users: User[] = [
   { id: 'u_p4', username: 'parent4', password: '123456', name: '陈静', role: 'parent', phone: '13800000004', childName: '乐乐', childAge: 9 },
   { id: 'u_staff', username: 'staff', password: '123456', name: '王芳', role: 'staff', phone: '13900000001' },
   { id: 'u_vol', username: 'volunteer', password: '123456', name: '赵伟', role: 'volunteer', phone: '13900000002' },
-  { id: 'u_charity', username: 'charity', password: '123456', name: '刘洋', role: 'charity', orgName: '春芽公益', capacity: 19 },
+  { id: 'u_charity', username: 'charity', password: '123456', name: '刘洋', role: 'charity', orgName: '春芽公益', phone: '13700000001' },
 ]
 
 interface ItemSeed {
@@ -37,6 +37,7 @@ interface ItemSeed {
   entryTime?: string
   review?: Item['review']
   checkIn?: Item['checkIn']
+  disposal?: DisposalRecord
   history: HistoryEntry[]
 }
 
@@ -66,6 +67,7 @@ function mk(s: ItemSeed): Item {
     booth: s.booth,
     entryTime: s.entryTime,
     checkIn: s.checkIn,
+    disposal: s.disposal,
     history: s.history,
     createdAt: s.history[0]?.at ?? now,
   }
@@ -211,23 +213,23 @@ const items: Item[] = [
     review: { by: '王芳', at: now - 24 * H, result: 'approved' },
     history: [submitted('张磊', now - 26 * H), approvedH(now - 24 * H), h(now - 12 * H, '王芳', '转入自由交换区', '本轮未匹配成功')],
   }),
-  // ---------- 无人交换（申请转捐中） ----------
+  // ---------- 无人交换（申请转捐中，年龄段符合） ----------
   mk({
     id: 'itm_019', code: 'SW-1019', parentId: 'u_p4', name: '木质拼图 500 片', category: 'toy', condition: 'good',
     emoji: '🧩', disinfected: true, desired: ['study'], value: [21, 50], age: [6, 12],
     slots: [S2], donation: true, status: 'no_exchange',
     review: { by: '王芳', at: now - 24 * H, result: 'approved' },
     checkIn: { at: now - 4 * H, by: '赵伟', photoMatch: true, damage: 'none', disinfectedConfirmed: true, passed: true },
-    history: [submitted('陈静', now - 26 * H), approvedH(now - 24 * H), checkedIn(now - 4 * H), h(now - 1 * H, '系统', '无人交换', '自由交换区未换出，可申请转捐')],
+    history: [submitted('陈静', now - 26 * H), approvedH(now - 24 * H), checkedIn(now - 4 * H), h(now - 1 * H, '系统', '无人交换', '自由交换区未换出，可申请转捐'), h(now - 0.5 * H, '陈静', '申请公益转捐', '等待「春芽公益」接收')],
   }),
-  // ---------- 已转捐 ----------
+  // ---------- 已转捐（含交接清单） ----------
   mk({
     id: 'itm_020', code: 'SW-1020', parentId: 'u_p3', name: '婴儿连体衣 5 件', category: 'clothing', condition: 'good',
     emoji: '👶', disinfected: true, desired: ['baby'], value: [21, 50], age: [0, 3],
     slots: [S1], donation: true, status: 'donated',
     review: { by: '王芳', at: now - 24 * H, result: 'approved' },
     checkIn: { at: now - 5 * H, by: '赵伟', photoMatch: true, damage: 'none', disinfectedConfirmed: true, note: '实物颜色略浅，已现场补拍确认', passed: true },
-    history: [submitted('张磊', now - 27 * H), approvedH(now - 24 * H), checkedIn(now - 5 * H), h(now - 2 * H, '系统', '无人交换'), h(now - 1 * H, '刘洋', '公益接收', '春芽公益接收，送往山区幼儿园')],
+    history: [submitted('张磊', now - 27 * H), approvedH(now - 24 * H), checkedIn(now - 5 * H), h(now - 2 * H, '系统', '无人交换'), h(now - 1.2 * H, '张磊', '申请公益转捐'), h(now - 1 * H, '刘洋', '公益接收', '春芽公益接收并生成交接清单 HO-2609-01')],
   }),
   // ---------- 已带回 ----------
   mk({
@@ -236,6 +238,7 @@ const items: Item[] = [
     slots: [S3], donation: false, status: 'taken_back',
     review: { by: '王芳', at: now - 24 * H, result: 'approved' },
     checkIn: { at: now - 4 * H, by: '赵伟', photoMatch: true, damage: 'none', disinfectedConfirmed: true, passed: true },
+    disposal: { type: 'take_back', handler: '李敏', handlerRole: 'parent', at: now - 1 * H },
     history: [submitted('李敏', now - 26 * H), approvedH(now - 24 * H), checkedIn(now - 4 * H), h(now - 1 * H, '李敏', '自行带回', '未换到心仪物品，选择带回')],
   }),
   // ---------- 未到场 ----------
@@ -253,6 +256,62 @@ const items: Item[] = [
     slots: [S1], donation: false, status: 'rejected',
     review: { by: '王芳', at: now - 25 * H, result: 'rejected', reason: '食品类物品不参与交换' },
     history: [submitted('王晓', now - 28 * H), h(now - 25 * H, '王芳', '审核驳回', '食品类物品不参与交换')],
+  }),
+  // ---------- 公益机构破损拒收，待家长确认去向 ----------
+  mk({
+    id: 'itm_024', code: 'SW-1024', parentId: 'u_p2', name: '小熊绘本 10 本', category: 'book', condition: 'fair',
+    emoji: '🐻', disinfected: true, desired: ['toy'], value: [0, 20], age: [3, 6],
+    slots: [S2], donation: true, status: 'parent_confirm',
+    note: '孩子小时候反复翻阅，书角有磨损',
+    review: { by: '王芳', at: now - 24 * H, result: 'approved' },
+    checkIn: { at: now - 3 * H, by: '赵伟', photoMatch: true, damage: 'minor', disinfectedConfirmed: true, note: '书角有水渍和卷边，家长已知情，可继续参与交换', passed: true },
+    history: [submitted('李敏', now - 26 * H), approvedH(now - 24 * H), checkedIn(now - 3 * H), h(now - 1.5 * H, '系统', '无人交换', '自由交换区未换出，可申请转捐'), h(now - 1 * H, '李敏', '申请公益转捐'), h(now - 0.5 * H, '刘洋', '公益拒收', '书角卷边且有明显水渍，不符合捐赠标准，退回家长确认去向')],
+  }),
+  // ---------- 无人交换（申请转捐中，年龄段符合） ----------
+  mk({
+    id: 'itm_025', code: 'SW-1025', parentId: 'u_p1', name: '经典童话绘本 8 本', category: 'book', condition: 'good',
+    emoji: '📕', disinfected: true, desired: ['toy'], value: [21, 50], age: [3, 6],
+    slots: [S2, S3], donation: true, status: 'no_exchange',
+    review: { by: '王芳', at: now - 24 * H, result: 'approved' },
+    checkIn: { at: now - 3 * H, by: '赵伟', photoMatch: true, damage: 'none', disinfectedConfirmed: true, passed: true },
+    history: [submitted('王晓', now - 26 * H), approvedH(now - 24 * H), checkedIn(now - 3 * H), h(now - 1 * H, '系统', '无人交换'), h(now - 0.5 * H, '王晓', '申请公益转捐')],
+  }),
+  // ---------- 无人交换（年龄段 0–2 岁，不在公益机构接收范围 3–9 岁） ----------
+  mk({
+    id: 'itm_026', code: 'SW-1026', parentId: 'u_p3', name: '早教识字卡片', category: 'study', condition: 'like_new',
+    emoji: '🔠', disinfected: true, desired: ['toy'], value: [0, 20], age: [0, 2],
+    slots: [S1], donation: true, status: 'no_exchange',
+    review: { by: '王芳', at: now - 24 * H, result: 'approved' },
+    checkIn: { at: now - 3 * H, by: '赵伟', photoMatch: true, damage: 'none', disinfectedConfirmed: true, passed: true },
+    history: [submitted('张磊', now - 26 * H), approvedH(now - 24 * H), checkedIn(now - 3 * H), h(now - 1 * H, '系统', '无人交换'), h(now - 0.5 * H, '张磊', '申请公益转捐')],
+  }),
+  // ---------- 超承接上限，寄存社区 ----------
+  mk({
+    id: 'itm_027', code: 'SW-1027', parentId: 'u_p4', name: '涂色本一摞（约 15 本）', category: 'book', condition: 'good',
+    emoji: '🎨', disinfected: true, desired: ['toy'], value: [0, 20], age: [3, 6],
+    slots: [S3], donation: true, status: 'stored_community',
+    review: { by: '王芳', at: now - 24 * H, result: 'approved' },
+    checkIn: { at: now - 3 * H, by: '赵伟', photoMatch: true, damage: 'none', disinfectedConfirmed: true, passed: true },
+    disposal: {
+      type: 'store_community', handler: '赵伟', handlerRole: 'volunteer',
+      channel: '社区服务中心储物架 A2', note: '公益本场承接已满，家长选择寄存社区，下一场继续交换或转捐',
+      incidentId: 'inc5', at: now - 0.3 * H,
+    },
+    history: [submitted('陈静', now - 26 * H), approvedH(now - 24 * H), checkedIn(now - 3 * H), h(now - 1 * H, '系统', '无人交换'), h(now - 0.8 * H, '陈静', '申请公益转捐'), h(now - 0.6 * H, '刘洋', '公益拒收', '本场承接名额已满'), h(now - 0.3 * H, '赵伟', '寄存社区', '寄存至社区服务中心储物架 A2，现场处理人赵伟')],
+  }),
+  // ---------- 破损拒收后环保回收 ----------
+  mk({
+    id: 'itm_028', code: 'SW-1028', parentId: 'u_p1', name: '破旧毛绒兔子', category: 'toy', condition: 'fair',
+    emoji: '🐰', disinfected: true, desired: ['book'], value: [0, 20], age: [0, 6],
+    slots: [S2], donation: true, status: 'recycled',
+    review: { by: '王芳', at: now - 24 * H, result: 'approved' },
+    checkIn: { at: now - 3 * H, by: '赵伟', photoMatch: true, damage: 'minor', disinfectedConfirmed: true, note: '腹部缝线开裂，有填充物外露风险', passed: true },
+    disposal: {
+      type: 'recycle', handler: '王芳', handlerRole: 'staff',
+      channel: '社区再生资源回收点（织物回收箱）', note: '破损不符合捐赠标准，家长确认后环保回收',
+      incidentId: 'inc4', at: now - 0.2 * H,
+    },
+    history: [submitted('王晓', now - 26 * H), approvedH(now - 24 * H), checkedIn(now - 3 * H), h(now - 1 * H, '系统', '无人交换'), h(now - 0.8 * H, '王晓', '申请公益转捐'), h(now - 0.6 * H, '刘洋', '公益拒收', '缝线开裂、填充物外露，不符合捐赠标准'), h(now - 0.2 * H, '王芳', '环保回收', '家长确认放弃，投入织物回收箱，现场处理人王芳')],
   }),
 ]
 
@@ -303,10 +362,80 @@ export function createSeedDB(): DB {
         resolution: '确认为同款物品，色差系光线问题，物品继续参与交换流程。',
         createdBy: '赵伟', createdAt: now - 5 * H,
       },
+      {
+        id: 'inc3', itemId: 'itm_024', type: 'charity_damaged',
+        title: '「小熊绘本 10 本」公益机构破损拒收',
+        status: 'open',
+        logs: [
+          { at: now - 0.5 * H, actor: '刘洋', role: 'charity', message: '该书书角卷边且有明显水渍，不符合公益捐赠标准，已现场拒收。物品退回家长，请社区协助家长在「带回 / 寄存社区 / 预约下一场 / 环保回收」中确认去向，现场处理人请登记。' },
+        ],
+        createdBy: '刘洋', createdAt: now - 0.5 * H,
+      },
+      {
+        id: 'inc4', itemId: 'itm_028', type: 'charity_damaged',
+        title: '「破旧毛绒兔子」公益机构破损拒收',
+        status: 'resolved',
+        onsiteHandler: '王芳',
+        logs: [
+          { at: now - 0.6 * H, actor: '刘洋', role: 'charity', message: '毛绒兔子腹部缝线开裂、填充物外露，存在安全隐患，不符合捐赠标准，拒收并退回家长确认。' },
+          { at: now - 0.2 * H, actor: '王芳', role: 'staff', message: '已联系家长王晓到场确认，家长同意放弃物品并环保回收，已投入社区织物回收箱。' },
+        ],
+        resolution: '破损物品无法转赠，家长确认放弃，由社区投入再生资源织物回收箱环保回收，现场处理人：王芳。',
+        createdBy: '刘洋', createdAt: now - 0.6 * H,
+      },
+      {
+        id: 'inc5', itemId: 'itm_027', type: 'charity_capacity',
+        title: '「涂色本一摞（约 15 本）」公益承接超上限',
+        status: 'resolved',
+        onsiteHandler: '赵伟',
+        logs: [
+          { at: now - 0.6 * H, actor: '刘洋', role: 'charity', message: '本场承接名额（3 件）已用完，无法继续接收，请协调家长带回、寄存社区或预约下一场。' },
+          { at: now - 0.3 * H, actor: '赵伟', role: 'volunteer', message: '家长陈静选择寄存社区，已放入社区服务中心储物架 A2 并登记。' },
+        ],
+        resolution: '家长选择寄存到社区服务中心（储物架 A2），下一场活动继续交换或转捐，现场处理人：赵伟。',
+        createdBy: '刘洋', createdAt: now - 0.6 * H,
+      },
     ],
     donations: [
-      { id: 'd1', itemId: 'itm_020', charityId: 'u_charity', status: 'received', note: '送往山区幼儿园', createdAt: now - 1 * H },
+      { id: 'd1', itemId: 'itm_020', charityId: 'u_charity', status: 'received', note: '送往山区幼儿园', handoverId: 'ho1', createdAt: now - 1.2 * H, respondedAt: now - 1 * H },
       { id: 'd2', itemId: 'itm_019', charityId: 'u_charity', status: 'requested', createdAt: now - 0.5 * H },
+      { id: 'd3', itemId: 'itm_024', charityId: 'u_charity', status: 'declined', declineReason: 'damaged', note: '书角卷边且有明显水渍，不符合捐赠标准', createdAt: now - 1 * H, respondedAt: now - 0.5 * H },
+      { id: 'd4', itemId: 'itm_025', charityId: 'u_charity', status: 'requested', createdAt: now - 0.5 * H },
+      { id: 'd5', itemId: 'itm_026', charityId: 'u_charity', status: 'requested', createdAt: now - 0.5 * H },
+      { id: 'd6', itemId: 'itm_027', charityId: 'u_charity', status: 'declined', declineReason: 'over_capacity', note: '本场承接名额已满', createdAt: now - 0.8 * H, respondedAt: now - 0.6 * H },
+      { id: 'd7', itemId: 'itm_028', charityId: 'u_charity', status: 'declined', declineReason: 'damaged', note: '缝线开裂、填充物外露，存在安全隐患', createdAt: now - 0.8 * H, respondedAt: now - 0.6 * H },
+    ],
+    charityProfiles: [
+      {
+        charityId: 'u_charity',
+        acceptAgeRange: [3, 9],
+        capacityLimit: 3,
+        pickupWindow: '活动结束后 3 天内（9月28日–30日）每日 9:00–17:00 上门取件',
+        invoiceNeeded: true,
+        invoiceNote: '需开具公益事业捐赠票据，抬头：春芽公益发展中心',
+        updatedAt: now - 24 * H,
+      },
+    ],
+    handovers: [
+      {
+        id: 'ho1',
+        code: 'HO-2609-01',
+        donationId: 'd1',
+        itemId: 'itm_020',
+        charityId: 'u_charity',
+        parentId: 'u_p3',
+        eventName: '阳光社区第三届亲子旧物交换日',
+        items: [{ name: '婴儿连体衣 5 件', qty: 5, condition: '七成新' }],
+        photos: ['👶'],
+        charityHandler: '刘洋',
+        staffHandler: '王芳',
+        pickupWindow: '2026-09-28（周一）上午 9:00–11:00 上门取件',
+        invoiceNeeded: true,
+        invoiceNote: '公益事业捐赠票据 · 抬头：春芽公益发展中心',
+        destination: '统一消杀后送往云南山区幼儿园',
+        viewedByParent: true,
+        createdAt: now - 1 * H,
+      },
     ],
     event: {
       id: 'ev1',

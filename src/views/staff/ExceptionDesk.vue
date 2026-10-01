@@ -33,7 +33,10 @@
             </div>
           </div>
         </div>
-        <div v-if="inc.resolution" class="notice success mt12">✅ 处理结论：{{ inc.resolution }}</div>
+        <div v-if="inc.resolution" class="notice success mt12">
+          ✅ 处理结论：{{ inc.resolution }}
+          <span v-if="inc.onsiteHandler" class="small" style="display: block; margin-top: 4px">现场处理人：{{ inc.onsiteHandler }}</span>
+        </div>
 
         <template v-if="inc.status !== 'resolved'">
           <div class="row mt12">
@@ -48,6 +51,22 @@
             <input v-model="resolutions[inc.id]" class="input" style="flex: 1" placeholder="处理结论说明（必填）" />
             <button class="btn primary" @click="resolve(inc)">办结</button>
           </div>
+          <template v-if="selectedHasDisposal(inc)">
+            <div class="row wrap mt12">
+              <input v-model.trim="handlers[inc.id]" class="input" style="max-width: 220px" placeholder="现场处理人（必填）" />
+              <input
+                v-model.trim="channels[inc.id]"
+                class="input"
+                style="flex: 1"
+                :placeholder="channelPlaceholder(inc)"
+              />
+            </div>
+            <p class="small muted mt8">
+              {{ inc.type === 'charity_damaged'
+                ? '破损拒收物品：选择「环保回收」时请填写回收渠道；处理人与渠道会写入物品终态记录，家长可查。'
+                : '超承接上限物品：选择「寄存社区 / 预约下一场」时请填写寄存位置或下一场安排；现场处理人必填。' }}
+            </p>
+          </template>
         </template>
       </div>
     </template>
@@ -89,6 +108,8 @@ function countOf(key: string) {
 const drafts = reactive<Record<string, string>>({})
 const resolutions = reactive<Record<string, string>>({})
 const choices = reactive<Record<string, number | ''>>({})
+const handlers = reactive<Record<string, string>>({})
+const channels = reactive<Record<string, string>>({})
 
 /** 各异常类型可选的处理方案及其对物品/组合的状态影响 */
 const OPTIONS: Record<IncidentType, { label: string; effects: ResolveEffects }[]> = {
@@ -109,14 +130,32 @@ const OPTIONS: Record<IncidentType, { label: string; effects: ResolveEffects }[]
     { label: '取消本次交换，双方回自由交换区', effects: { itemStatus: 'free_zone', counterpartStatus: 'free_zone', matchStatus: 'failed' } },
   ],
   charity_capacity: [
+    { label: '家长自行带回', effects: { disposal: { type: 'take_back', handler: '' } } },
+    { label: '寄存到社区，下一场继续交换或转捐', effects: { disposal: { type: 'store_community', handler: '' } } },
+    { label: '预约下一场活动', effects: { disposal: { type: 'next_event', handler: '' } } },
     { label: '协调其他公益机构接收', effects: { itemStatus: 'donated' } },
-    { label: '暂存社区，等待下一场活动', effects: { itemStatus: 'no_exchange' } },
-    { label: '家长自行带回', effects: { itemStatus: 'taken_back' } },
+  ],
+  charity_damaged: [
+    { label: '破损物品由家长确认带回', effects: { disposal: { type: 'take_back', handler: '' } } },
+    { label: '环保回收（登记回收渠道与现场处理人）', effects: { disposal: { type: 'recycle', handler: '' } } },
   ],
 }
 
 function optionsOf(type: IncidentType) {
   return OPTIONS[type]
+}
+/** 当前选中的处理方案是否需要登记终态去向 */
+function selectedHasDisposal(inc: Incident) {
+  const idx = choices[inc.id]
+  return idx !== '' && idx !== undefined && !!OPTIONS[inc.type][idx]?.effects.disposal
+}
+function channelPlaceholder(inc: Incident): string {
+  const idx = choices[inc.id]
+  const t = idx === '' || idx === undefined ? null : OPTIONS[inc.type][idx]?.effects.disposal?.type ?? null
+  if (t === 'recycle') return '回收渠道，如：社区再生资源织物回收箱'
+  if (t === 'store_community') return '寄存位置，如：社区服务中心储物架 A2'
+  if (t === 'next_event') return '下一场安排，如：已预约 10 月 25 日活动名额'
+  return '补充信息（可留空）'
 }
 function itemOf(inc: Incident) {
   return data.itemById(inc.itemId)
@@ -145,7 +184,20 @@ function resolve(inc: Incident) {
   const resolution = resolutions[inc.id]?.trim()
   if (idx === undefined || idx === '') return alert('请选择处理方案')
   if (!resolution) return alert('请填写处理结论说明')
-  data.resolveIncident(inc.id, auth.currentUser!.name, resolution, OPTIONS[inc.type][idx].effects)
+  const base = OPTIONS[inc.type][idx].effects
+  const effects: ResolveEffects = { ...base }
+  if (base.disposal) {
+    const handler = handlers[inc.id]?.trim() || auth.currentUser!.name
+    effects.disposal = {
+      type: base.disposal.type,
+      handler,
+      channel: channels[inc.id]?.trim() || undefined,
+      note: resolution,
+    }
+  }
+  data.resolveIncident(inc.id, auth.currentUser!.name, resolution, effects)
+  handlers[inc.id] = ''
+  channels[inc.id] = ''
 }
 </script>
 

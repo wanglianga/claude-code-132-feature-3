@@ -34,3 +34,10 @@ temp/
 *debug*
 *temp*
 *tmp*
+# ItemPhoto.vue 会被上面的 *temp*（忽略大小写时匹配 "ItemPhoto"）误伤，显式放行
+!src/components/ItemPhoto.vue
+.local/*.tar
+.local/*.tar.gz
+.local/*.tgz
+.local/*.zip
+.local/*.7z

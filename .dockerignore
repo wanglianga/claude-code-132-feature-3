@@ -1,0 +1,16 @@
+node_modules
+dist
+smoke-dist
+.git
+.gitignore
+*.local
+.DS_Store
+.claude
+.codex
+traces
+recordings
+screenshots
+test-results
+tmp
+temp
+*.log

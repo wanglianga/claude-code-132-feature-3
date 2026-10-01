@@ -11,8 +11,6 @@ export interface User {
   childName?: string
   childAge?: number
   orgName?: string
-  /** 公益机构剩余接收能力（件） */
-  capacity?: number
 }
 
 // ============ 物品 ============
@@ -33,8 +31,12 @@ export type ItemStatus =
   | 'verified'     // 核销通过
   | 'exchanged'    // 交换成功
   | 'no_exchange'  // 无人交换
-  | 'donated'      // 已转捐
+  | 'donated'      // 已转捐（已生成交接清单）
   | 'taken_back'   // 已带回
+  | 'parent_confirm' // 公益机构破损拒收，等待家长确认去向
+  | 'stored_community' // 超承接上限，寄存到社区
+  | 'next_event'   // 已预约下一场活动
+  | 'recycled'     // 环保回收
   | 'no_show'      // 未到场
   | 'disputed'     // 争议/异常处理中
 
@@ -62,6 +64,22 @@ export interface CheckInRecord {
   passed: boolean
 }
 
+/** 物品终态去向（公益承接上限 / 破损拒收后的现场处置） */
+export type DisposalType = 'take_back' | 'store_community' | 'next_event' | 'recycle'
+
+export interface DisposalRecord {
+  type: DisposalType
+  /** 现场处理人（家长本人 / 志愿者 / 社区工作人员） */
+  handler: string
+  handlerRole: Role
+  /** 回收渠道 / 社区寄存点等说明 */
+  channel?: string
+  note?: string
+  /** 关联异常单 */
+  incidentId?: string
+  at: number
+}
+
 export interface Item {
   id: string
   code: string
@@ -83,6 +101,8 @@ export interface Item {
   booth?: string
   entryTime?: string
   checkIn?: CheckInRecord
+  /** 终态去向处置记录 */
+  disposal?: DisposalRecord
   history: HistoryEntry[]
   createdAt: number
 }
@@ -117,7 +137,8 @@ export type IncidentType =
   | 'photo_mismatch'   // 物品与照片不符
   | 'child_regret'     // 孩子现场反悔
   | 'value_dispute'    // 双方价值争议
-  | 'charity_capacity' // 公益组织接收能力不足
+  | 'charity_capacity' // 公益组织承接能力不足（超上限/年龄段不符）
+  | 'charity_damaged'  // 公益机构破损拒收
 
 export type IncidentStatus = 'open' | 'processing' | 'resolved'
 
@@ -137,12 +158,37 @@ export interface Incident {
   status: IncidentStatus
   logs: IncidentLog[]
   resolution?: string
+  /** 现场处理人（办结时记录） */
+  onsiteHandler?: string
   createdBy: string
   createdAt: number
 }
 
+// ============ 公益机构承接设置 ============
+export interface CharityProfile {
+  charityId: string
+  /** 可接收年龄段（闭区间，岁） */
+  acceptAgeRange: [number, number]
+  /** 本场公益捐赠承接上限（件） */
+  capacityLimit: number
+  /** 运输 / 上门取件时间说明 */
+  pickupWindow: string
+  /** 是否需要开具公益捐赠票据 */
+  invoiceNeeded: boolean
+  /** 开票抬头 / 税号等备注 */
+  invoiceNote?: string
+  updatedAt: number
+}
+
 // ============ 捐赠 ============
 export type DonationStatus = 'requested' | 'received' | 'declined'
+
+export type DonationDeclineReason =
+  | 'over_capacity'   // 超过承接上限
+  | 'age_unfit'       // 不在可接收年龄段
+  | 'damaged'         // 物品破损拒收
+  | 'category_unfit'  // 品类不在接收范围
+  | 'other'
 
 export interface Donation {
   id: string
@@ -150,6 +196,45 @@ export interface Donation {
   charityId: string
   status: DonationStatus
   note?: string
+  declineReason?: DonationDeclineReason
+  /** 接收成功后关联的交接清单 */
+  handoverId?: string
+  createdAt: number
+  respondedAt?: number
+}
+
+// ============ 捐赠交接清单 ============
+export interface HandoverItem {
+  name: string
+  qty: number
+  condition: string
+}
+
+export interface Handover {
+  id: string
+  /** 交接单号，如 HO-8821 */
+  code: string
+  donationId: string
+  itemId: string
+  charityId: string
+  parentId: string
+  eventName: string
+  /** 清点物品明细 */
+  items: HandoverItem[]
+  /** 交接现场照片（dataURL 或 emoji 占位） */
+  photos: string[]
+  /** 公益机构现场处理人 */
+  charityHandler: string
+  /** 社区监交人 */
+  staffHandler?: string
+  /** 运输 / 取件时间 */
+  pickupWindow: string
+  invoiceNeeded: boolean
+  invoiceNote?: string
+  /** 捐赠去向（帮扶地区 / 用途说明） */
+  destination?: string
+  /** 家长是否已查看 */
+  viewedByParent: boolean
   createdAt: number
 }
 
@@ -173,5 +258,7 @@ export interface DB {
   matches: Match[]
   incidents: Incident[]
   donations: Donation[]
+  charityProfiles: CharityProfile[]
+  handovers: Handover[]
   event: EventInfo
 }
