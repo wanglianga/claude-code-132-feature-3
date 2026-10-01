@@ -34,3 +34,11 @@ temp/
 *debug*
 *temp*
 *tmp*
+
+# 例外：物品照片组件文件名含 "temp" 子串（ItemPhoto），勿被 *temp* 误伤
+!src/components/ItemPhoto.vue
+.local/*.tar
+.local/*.tar.gz
+.local/*.tgz
+.local/*.zip
+.local/*.7z

@@ -1,4 +1,4 @@
-import type { Category, Condition, EventPhase, IncidentType, ItemStatus, Role } from './types'
+import type { Category, Condition, DisposalRoute, DonationDeclineReason, EventPhase, IncidentType, ItemStatus, Role } from './types'
 
 export const CATEGORY_META: Record<Category, { label: string; icon: string; allowed: boolean }> = {
   toy: { label: '玩具', icon: '🧸', allowed: true },
@@ -30,6 +30,10 @@ export const STATUS_META: Record<ItemStatus, { label: string; tone: string }> = 
   taken_back: { label: '已带回', tone: 'gray' },
   no_show: { label: '未到场', tone: 'red' },
   disputed: { label: '争议处理中', tone: 'rose' },
+  stored: { label: '寄存社区', tone: 'indigo' },
+  next_event: { label: '已约下一场', tone: 'purple' },
+  recycled: { label: '环保回收', tone: 'teal' },
+  charity_returned: { label: '公益拒收待确认', tone: 'orange' },
 }
 
 export const CONDITION_META: Record<Condition, string> = {
@@ -52,6 +56,7 @@ export const INCIDENT_META: Record<IncidentType, { label: string; icon: string }
   child_regret: { label: '孩子现场反悔', icon: '😢' },
   value_dispute: { label: '双方价值争议', icon: '⚖️' },
   charity_capacity: { label: '公益接收能力不足', icon: '📦' },
+  charity_damaged: { label: '破损物品公益拒收', icon: '🧩' },
 }
 
 export const PHASE_META: Record<EventPhase, { label: string; desc: string }> = {
@@ -84,3 +89,16 @@ export const AGE_RANGES: { label: string; range: [number, number] }[] = [
   { label: '6–9 岁', range: [6, 9] },
   { label: '9–12 岁', range: [9, 12] },
 ]
+
+export const DECLINE_REASON_META: Record<DonationDeclineReason, { label: string; icon: string }> = {
+  capacity: { label: '超过承接上限', icon: '📦' },
+  age_unfit: { label: '年龄段不在接收范围', icon: '🔢' },
+  damaged: { label: '物品破损，不适合捐赠', icon: '🧩' },
+}
+
+export const DISPOSAL_META: Record<DisposalRoute, { label: string; icon: string }> = {
+  take_back: { label: '家长带回', icon: '🎒' },
+  community_store: { label: '寄存社区', icon: '🏢' },
+  next_event: { label: '预约下一场活动', icon: '🔁' },
+  recycle: { label: '环保回收', icon: '♻️' },
+}

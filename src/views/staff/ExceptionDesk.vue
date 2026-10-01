@@ -98,6 +98,7 @@ const OPTIONS: Record<IncidentType, { label: string; effects: ResolveEffects }[]
   ],
   photo_mismatch: [
     { label: '物品由家长带回，配对物品回自由交换区', effects: { itemStatus: 'taken_back', counterpartStatus: 'free_zone', matchStatus: 'failed' } },
+    { label: '物品破损无法流通，转环保回收', effects: { itemStatus: 'recycled', counterpartStatus: 'free_zone', matchStatus: 'failed' } },
     { label: '复核无误，恢复核销通过', effects: { itemStatus: 'verified' } },
   ],
   child_regret: [
@@ -109,9 +110,14 @@ const OPTIONS: Record<IncidentType, { label: string; effects: ResolveEffects }[]
     { label: '取消本次交换，双方回自由交换区', effects: { itemStatus: 'free_zone', counterpartStatus: 'free_zone', matchStatus: 'failed' } },
   ],
   charity_capacity: [
-    { label: '协调其他公益机构接收', effects: { itemStatus: 'donated' } },
-    { label: '暂存社区，等待下一场活动', effects: { itemStatus: 'no_exchange' } },
+    { label: '联系其他公益机构接收', effects: { itemStatus: 'donated' } },
     { label: '家长自行带回', effects: { itemStatus: 'taken_back' } },
+    { label: '寄存社区，等待下一场活动', effects: { itemStatus: 'stored' } },
+    { label: '为家长预约下一场活动', effects: { itemStatus: 'next_event' } },
+  ],
+  charity_damaged: [
+    { label: '联系家长，物品自行带回', effects: { itemStatus: 'taken_back' } },
+    { label: '转环保回收流程处理', effects: { itemStatus: 'recycled' } },
   ],
 }
 

@@ -155,17 +155,123 @@ if (submitBtn) {
 } else fail('志愿者-完成核销', '未找到提交按钮')
 await logout()
 
-// 6. 公益机构端
+// 6. 公益机构端：承接配置 + 按上限接收 + 交接清单
 await clickLogin('charity')
 if (bodyText().includes('捐赠接收') && bodyText().includes('木质拼图')) pass('公益-捐赠接收')
 else fail('公益-捐赠接收', bodyText().slice(0, 120))
-const acceptDonationBtn = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('确认接收'))
-if (acceptDonationBtn) {
-  acceptDonationBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+if (bodyText().includes('本场承接配置') && bodyText().includes('运输') && bodyText().includes('捐赠票据')) {
+  pass('公益-承接年龄段/数量/运输/开票配置展示')
+} else fail('公益-承接配置展示', bodyText().slice(0, 200))
+// 9–12 岁的少儿科普图鉴应被拦截在可接收范围外（配额 0）
+if (bodyText().includes('不在公益机构本场可接收年龄段内')) pass('公益-年龄段上限拦截提示')
+else fail('公益-年龄段上限拦截提示', bodyText().slice(0, 300))
+
+// 打开第一件可接收物品（木质拼图）的接收弹窗
+const openAcceptBtn = [...document.querySelectorAll('button')]
+  .find((b) => b.textContent.includes('确认接收并生成交接清单') && !b.disabled)
+if (openAcceptBtn) {
+  openAcceptBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+  await sleep(120)
+  if (bodyText().includes('填写交接清单') && bodyText().includes('现场经办人')) pass('公益-接收弹窗/交接清单表单')
+  else fail('公益-接收弹窗/交接清单表单', bodyText().slice(0, 200))
+  const confirmAcceptBtn = [...document.querySelectorAll('.modal button')].find((b) => b.textContent.includes('确认接收，生成交接清单'))
+  confirmAcceptBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
   await sleep(150)
-  if (bodyText().includes('本场已接收')) pass('公益-确认接收捐赠')
-  else fail('公益-确认接收捐赠', bodyText().slice(0, 200))
-} else fail('公益-确认接收捐赠', '未找到接收按钮')
+  if (bodyText().includes('交接清单') && bodyText().includes('上门清运') && bodyText().includes('经办人')) {
+    pass('公益-接收并生成交接清单与照片')
+  } else fail('公益-接收并生成交接清单与照片', bodyText().slice(0, 300))
+} else fail('公益-接收弹窗', '未找到可用的接收按钮')
+
+// 对超范围的少儿科普图鉴执行「超过承接上限，拒收」并记录现场处理人
+const capDeclineBtn = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('超过承接上限，拒收'))
+if (capDeclineBtn) {
+  capDeclineBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+  await sleep(120)
+  if (bodyText().includes('带回、寄存到社区或预约下一场')) pass('公益-超限拒收去向提示')
+  else fail('公益-超限拒收去向提示', bodyText().slice(0, 200))
+  const modalInputs = [...document.querySelectorAll('.modal input.input')]
+  const handlerInput = modalInputs[modalInputs.length - 1]
+  handlerInput.value = '赵伟'
+  handlerInput.dispatchEvent(new window.Event('input', { bubbles: true }))
+  const confirmDeclineBtn = [...document.querySelectorAll('.modal button')].find((b) => b.textContent.includes('确认拒收并通知家长'))
+  confirmDeclineBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+  await sleep(150)
+  if (bodyText().includes('已拒收记录') && bodyText().includes('赵伟')) pass('公益-超限拒收并记录现场处理人')
+  else fail('公益-超限拒收并记录现场处理人', bodyText().slice(0, 300))
+} else fail('公益-超限拒收', '未找到拒收按钮')
+await logout()
+
+// 7. 家长端：超过承接上限物品确认去向（寄存社区）
+await clickLogin('parent4')
+if (bodyText().includes('经典童话绘本') && bodyText().includes('超过公益机构本场承接上限')) {
+  pass('家长-超限物品提示带回/寄存/约下场')
+} else fail('家长-超限物品提示', bodyText().slice(0, 300))
+const disposeBtn4 = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('确认物品去向'))
+if (disposeBtn4) {
+  disposeBtn4.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+  await sleep(120)
+  const storeOpt = [...document.querySelectorAll('.dispose-opt')].find((b) => b.textContent.includes('寄存到社区'))
+  storeOpt.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+  await sleep(60)
+  const confirmDisposeBtn = [...document.querySelectorAll('.modal button')].find((b) => b.textContent.trim() === '确认去向')
+  confirmDisposeBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+  await sleep(150)
+  if (bodyText().includes('已寄存社区')) pass('家长-超限物品确认寄存社区')
+  else fail('家长-超限物品确认寄存社区', bodyText().slice(0, 300))
+} else fail('家长-超限物品确认', '未找到确认去向按钮')
+await logout()
+
+// 8. 家长端：破损拒收物品 → 环保回收；已捐赠物品 → 查看交接清单
+await clickLogin('parent1')
+if (bodyText().includes('布偶拼图') && bodyText().includes('因物品破损拒收')) {
+  pass('家长-破损拒收回到家长确认流程')
+} else fail('家长-破损拒收提示', bodyText().slice(0, 300))
+const disposeBtn1 = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('确认物品去向'))
+if (disposeBtn1) {
+  disposeBtn1.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+  await sleep(120)
+  if (bodyText().includes('环保回收') && !bodyText().includes('寄存到社区')) pass('家长-破损物品仅可带回/环保回收')
+  else fail('家长-破损物品处置选项', bodyText().slice(0, 300))
+  const recycleOpt = [...document.querySelectorAll('.dispose-opt')].find((b) => b.textContent.includes('环保回收'))
+  recycleOpt.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+  await sleep(60)
+  const confirmDisposeBtn = [...document.querySelectorAll('.modal button')].find((b) => b.textContent.trim() === '确认去向')
+  confirmDisposeBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+  await sleep(150)
+  if (bodyText().includes('已环保回收') && bodyText().includes('绿芽再生资源回收点')) pass('家长-破损物品环保回收并记录处理人')
+  else fail('家长-破损物品环保回收', bodyText().slice(0, 300))
+} else fail('家长-破损物品处置', '未找到确认去向按钮')
+await logout()
+
+// 已捐赠的婴儿连体衣（parent3 张磊）应可查看交接清单与去向
+await clickLogin('parent3')
+const hvBtn = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('查看交接清单与去向'))
+if (hvBtn) {
+  hvBtn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+  await sleep(120)
+  if (bodyText().includes('捐赠交接清单') && bodyText().includes('山区幼儿园') && bodyText().includes('春芽公益')) {
+    pass('家长-查看捐赠交接清单与去向')
+  } else fail('家长-查看捐赠交接清单', bodyText().slice(0, 300))
+} else fail('家长-查看捐赠交接清单', '未找到交接清单入口')
+await logout()
+
+// 9. 工作人员端：拒收异常办结后在「已解决」页签可查；总结页含新去向与交接清单
+await clickLogin('staff')
+await goto('#/staff/incidents')
+const resolvedChip = [...document.querySelectorAll('.chip')].find((c) => c.textContent.includes('已解决'))
+resolvedChip.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))
+await sleep(120)
+if (bodyText().includes('破损被公益机构拒收') && bodyText().includes('环保回收')) {
+  pass('社区-破损拒收异常处置留痕')
+} else fail('社区-破损拒收异常处置留痕', bodyText().slice(0, 300))
+await goto('#/staff/summary')
+if (
+  bodyText().includes('寄存社区') &&
+  bodyText().includes('环保回收') &&
+  bodyText().includes('捐赠去向与交接清单')
+) {
+  pass('社区-总结页去向分布与交接清单')
+} else fail('社区-总结页去向分布与交接清单', bodyText().slice(0, 300))
 
 console.log(results.join('\n'))
 const failed = results.filter((r) => r.startsWith('❌'))

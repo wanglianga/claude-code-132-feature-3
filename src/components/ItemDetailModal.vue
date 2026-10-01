@@ -54,6 +54,19 @@
       <div class="divider" />
       <div class="card-title">流转记录</div>
       <ItemTimeline :history="item.history" />
+
+      <template v-if="item.disposal">
+        <div class="divider" />
+        <div class="card-title">最终去向处置</div>
+        <div class="tag-list">
+          <span class="tag">{{ DISPOSAL_META[item.disposal.route].icon }} {{ DISPOSAL_META[item.disposal.route].label }}</span>
+          <span class="tag">现场处理人：{{ item.disposal.handler }}</span>
+          <span v-if="item.disposal.nextEvent" class="tag">🔁 {{ item.disposal.nextEvent }}</span>
+          <span v-if="item.disposal.recycler" class="tag">♻️ {{ item.disposal.recycler }}</span>
+          <span class="tag">{{ fmtTime(item.disposal.at) }}</span>
+        </div>
+        <p v-if="item.disposal.note" class="small muted mt8">备注：{{ item.disposal.note }}</p>
+      </template>
     </div>
   </div>
 </template>
@@ -61,7 +74,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { Item } from '../types'
-import { CATEGORY_META, CONDITION_META } from '../meta'
+import { CATEGORY_META, CONDITION_META, DISPOSAL_META } from '../meta'
 import { fmtAge, fmtTime, fmtValue } from '../utils'
 import { useDataStore } from '../stores/data'
 import ItemPhoto from './ItemPhoto.vue'

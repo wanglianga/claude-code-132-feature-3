@@ -1,8 +1,8 @@
 import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import type {
-  Category, CheckInRecord, DB, Donation, EventPhase, Incident, IncidentType,
-  Item, ItemStatus, Match, MatchStatus, User,
+  Category, CharityProfile, CheckInRecord, DB, DisposalRoute, Donation, DonationDeclineReason,
+  EventPhase, Handover, Incident, IncidentType, Item, ItemStatus, Match, MatchStatus, User,
 } from '../types'
 import { createSeedDB } from '../seed'
 import { autoMatch, commonSlot, recommendFor, scorePair, uid } from '../utils'
@@ -13,7 +13,20 @@ const DB_KEY = 'swapmeet-db-v1'
 function loadDB(): DB {
   try {
     const raw = localStorage.getItem(DB_KEY)
-    if (raw) return JSON.parse(raw) as DB
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<DB>
+      // 兼容旧版本数据：补全后加的集合，避免升级后页面读取 undefined
+      return {
+        users: parsed.users ?? [],
+        items: parsed.items ?? [],
+        matches: parsed.matches ?? [],
+        incidents: parsed.incidents ?? [],
+        donations: parsed.donations ?? [],
+        handovers: parsed.handovers ?? [],
+        charityProfiles: parsed.charityProfiles ?? [],
+        event: parsed.event ?? createSeedDB().event,
+      }
+    }
   } catch {
     /* 数据损坏时重新播种 */
   }
@@ -28,6 +41,25 @@ export interface ResolveEffects {
   matchStatus?: MatchStatus
 }
 
+export interface Eligibility {
+  ok: boolean
+  reason?: DonationDeclineReason
+  quotaLabel?: string
+  used?: number
+  limit?: number
+  message?: string
+}
+
+export interface AcceptPayload {
+  handler: string
+  destination: string
+  transportTime: string
+  transportMethod?: string
+  invoiceNeeded: boolean
+  invoiceTitle?: string
+  photos: string[]
+}
+
 export const useDataStore = defineStore('data', () => {
   const db = ref<DB>(loadDB())
 
@@ -40,12 +72,22 @@ export const useDataStore = defineStore('data', () => {
   const matches = computed(() => db.value.matches)
   const incidents = computed(() => db.value.incidents)
   const donations = computed(() => db.value.donations)
+  const handovers = computed(() => db.value.handovers)
+  const charityProfiles = computed(() => db.value.charityProfiles)
 
   const userById = (id: string): User | undefined => db.value.users.find((u) => u.id === id)
   const itemById = (id: string): Item | undefined => db.value.items.find((i) => i.id === id)
   const itemByCode = (code: string): Item | undefined =>
     db.value.items.find((i) => i.code.toLowerCase() === code.trim().toLowerCase())
   const matchById = (id: string): Match | undefined => db.value.matches.find((m) => m.id === id)
+  const donationByItem = (itemId: string): Donation | undefined =>
+    db.value.donations.find((d) => d.itemId === itemId)
+  const handoverByDonation = (donationId: string): Handover | undefined =>
+    db.value.handovers.find((h) => h.donationId === donationId)
+  const handoverByItem = (itemId: string): Handover | undefined =>
+    db.value.handovers.find((h) => h.itemId === itemId)
+  const charityProfile = (userId: string): CharityProfile | undefined =>
+    db.value.charityProfiles.find((p) => p.userId === userId)
 
   const itemsByParent = (pid: string) => db.value.items.filter((i) => i.parentId === pid)
   const pendingItems = computed(() => db.value.items.filter((i) => i.status === 'pending'))
@@ -322,6 +364,22 @@ export const useDataStore = defineStore('data', () => {
     if (item && effects.itemStatus) {
       item.status = effects.itemStatus
       pushHistory(item, actor, '争议处理完成', resolution)
+      // 办结为末端去向（带回/寄存/约下场/环保回收）时，记录处置与现场处理人
+      const routeMap: Partial<Record<ItemStatus, DisposalRoute>> = {
+        taken_back: 'take_back',
+        stored: 'community_store',
+        next_event: 'next_event',
+        recycled: 'recycle',
+      }
+      const route = routeMap[effects.itemStatus]
+      if (route) {
+        item.disposal = {
+          route, handler: actor, at: Date.now(), note: resolution,
+          nextEvent: route === 'next_event' ? '下一场亲子旧物交换日' : undefined,
+          recycler: route === 'recycle' ? '绿芽再生资源回收点' : undefined,
+          donationId: donationByItem(item.id)?.id,
+        }
+      }
     }
     const match = inc.matchId ? matchById(inc.matchId) : activeMatchForItem(inc.itemId)
     if (match && effects.matchStatus) match.status = effects.matchStatus
@@ -349,29 +407,225 @@ export const useDataStore = defineStore('data', () => {
     return donation
   }
 
-  function respondDonation(donationId: string, accept: boolean, actor: string, note?: string) {
+  /** 找到物品年龄段落在公益机构哪个承接档位：优先完全包含，否则取年龄段重叠最多的档位 */
+  function quotaOf(charityId: string, ageRange: [number, number]) {
+    const profile = charityProfile(charityId)
+    if (!profile) return undefined
+    const contains = profile.quotas.find(
+      (q) => q.ageRange[0] <= ageRange[0] && ageRange[1] <= q.ageRange[1],
+    )
+    if (contains) return contains
+    let best: CharityProfile['quotas'][number] | undefined
+    let bestOverlap = 0
+    for (const q of profile.quotas) {
+      const overlap = Math.min(ageRange[1], q.ageRange[1]) - Math.max(ageRange[0], q.ageRange[0])
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap
+        best = q
+      }
+    }
+    return best
+  }
+
+  /** 某档位已接收件数（按已接收捐赠对应物品的年龄段归集） */
+  function quotaUsed(charityId: string, label: string): number {
+    return db.value.donations
+      .filter((d) => d.charityId === charityId && d.status === 'received')
+      .filter((d) => quotaOf(charityId, itemById(d.itemId)?.ageRange ?? [0, 0])?.label === label).length
+  }
+
+  /** 机构总承接上限 / 已接收 / 剩余 */
+  function charityCapacityInfo(charityId: string) {
+    const profile = charityProfile(charityId)
+    const limit = profile?.quotas.reduce((s, q) => s + q.limit, 0)
+    const charity = userById(charityId)
+    const used = db.value.donations.filter(
+      (d) => d.charityId === charityId && d.status === 'received',
+    ).length
+    return {
+      limit: typeof limit === 'number' ? limit : (charity?.capacity ?? 0),
+      used,
+      remaining: Math.max(0, (typeof limit === 'number' ? limit : (charity?.capacity ?? 0)) - used),
+    }
+  }
+
+  /** 按机构在页面上标记的可接收年龄段与数量上限校验能否接收 */
+  function checkEligibility(charityId: string, item: Item): Eligibility {    const profile = charityProfile(charityId)
+    if (!profile) return { ok: true }
+    const quota = quotaOf(charityId, item.ageRange)
+    if (!quota || quota.limit <= 0) {
+      return {
+        ok: false, reason: 'age_unfit',
+        message: `该物品适合 ${item.ageRange[0]}–${item.ageRange[1]} 岁，不在公益机构本场可接收年龄段内`,
+      }
+    }
+    const used = quotaUsed(charityId, quota.label)
+    if (used >= quota.limit) {
+      return {
+        ok: false, reason: 'capacity', quotaLabel: quota.label, used, limit: quota.limit,
+        message: `${quota.label}年龄段承接名额已满（${used}/${quota.limit}），该物品超过承接上限`,
+      }
+    }
+    return { ok: true, quotaLabel: quota.label, used, limit: quota.limit }
+  }
+
+  /** 公益机构保存承接配置（年龄段、数量上限、运输时间、开票需求） */
+  function saveCharityProfile(
+    userId: string,
+    patch: Omit<CharityProfile, 'userId' | 'updatedAt'>,
+  ): CharityProfile {
+    const existing = charityProfile(userId)
+    const profile: CharityProfile = { ...(existing ?? { userId } as CharityProfile), ...patch, userId, updatedAt: Date.now() }
+    if (existing) Object.assign(existing, profile)
+    else db.value.charityProfiles.push(profile)
+    const charity = userById(userId)
+    if (charity) charity.capacity = profile.quotas.reduce((s, q) => s + q.limit, 0) - charityCapacityInfo(userId).used
+    return profile
+  }
+
+  /** 确认接收：校验承接上限，占用名额，生成交接清单与照片 */
+  function acceptDonation(donationId: string, payload: AcceptPayload): Eligibility {
+    const d = db.value.donations.find((x) => x.id === donationId)
+    if (!d || d.status !== 'requested') return { ok: false, message: '捐赠单状态已变化' }
+    const item = itemById(d.itemId)
+    if (!item) return { ok: false }
+    const eligibility = checkEligibility(d.charityId, item)
+    if (!eligibility.ok) return eligibility
+
+    const photos = payload.photos.length ? payload.photos : item.photos.slice(0, 1)
+    const handover: Handover = {
+      id: uid('hv'),
+      donationId: d.id,
+      itemId: item.id,
+      charityId: d.charityId,
+      handler: payload.handler,
+      photos,
+      transportTime: payload.transportTime,
+      transportMethod: payload.transportMethod,
+      invoiceNeeded: payload.invoiceNeeded,
+      invoiceTitle: payload.invoiceTitle,
+      destination: payload.destination,
+      at: Date.now(),
+    }
+    db.value.handovers.unshift(handover)
+    d.status = 'received'
+    d.note = payload.destination
+    d.handoverId = handover.id
+    item.status = 'donated'
+    const charity = userById(d.charityId)
+    if (charity && typeof charity.capacity === 'number') charity.capacity = Math.max(0, charity.capacity - 1)
+    pushHistory(
+      item, payload.handler, '公益接收',
+      `${charity?.orgName ?? '公益机构'} 接收：${payload.destination}；交接清单 ${handover.id.toUpperCase()}，运输：${payload.transportTime}`,
+    )
+    return { ok: true }
+  }
+
+  /** 拒收：超过上限 / 年龄段不符 / 破损；记录现场处理人，物品回到家长确认流程 */
+  function declineDonation(
+    donationId: string,
+    reason: DonationDeclineReason,
+    handler: string,
+    extra?: { damageDesc?: string; note?: string },
+  ) {
     const d = db.value.donations.find((x) => x.id === donationId)
     if (!d || d.status !== 'requested') return
     const item = itemById(d.itemId)
     const charity = userById(d.charityId)
     if (!item || !charity) return
-    if (accept) {
-      d.status = 'received'
-      d.note = note
-      item.status = 'donated'
-      if (typeof charity.capacity === 'number') charity.capacity = Math.max(0, charity.capacity - 1)
-      pushHistory(item, actor, '公益接收', `${charity.orgName} 接收${note ? `：${note}` : ''}`)
-    } else {
-      d.status = 'declined'
-      d.note = note
-      pushHistory(item, actor, '公益拒收', note ?? '接收能力不足')
-      reportIncident({
-        itemId: item.id, type: 'charity_capacity',
-        title: `「${item.name}」公益接收能力不足`,
-        message: `${charity.orgName} 因接收能力不足无法接收该物品，请社区协调其他去向。`,
-        by: actor, role: 'charity', changeItemStatus: false,
-      })
+    d.status = 'declined'
+    d.declineReason = reason
+    d.handler = handler
+    d.damageDesc = extra?.damageDesc
+    d.note = extra?.note
+    item.status = 'charity_returned'
+    item.disposal = { route: 'take_back', handler, at: Date.now(), note: '等待家长确认最终去向', donationId: d.id }
+
+    const reasonText =
+      reason === 'capacity'
+        ? '超过本场承接上限'
+        : reason === 'age_unfit'
+          ? '年龄段不在可接收范围'
+          : `物品破损不适合捐赠${extra?.damageDesc ? `（${extra.damageDesc}）` : ''}`
+    pushHistory(item, handler, '公益拒收', `${charity.orgName}${reasonText}；现场处理人：${handler}，等待家长确认去向`)
+
+    const damaged = reason === 'damaged'
+    const title = damaged
+      ? `「${item.name}」破损被公益机构拒收`
+      : reason === 'age_unfit'
+        ? `「${item.name}」年龄段不在公益接收范围`
+        : `「${item.name}」超过公益承接上限`
+    reportIncident({
+      itemId: item.id,
+      type: damaged ? 'charity_damaged' : 'charity_capacity',
+      title,
+      message: damaged
+        ? `${charity.orgName} 现场核验认为该物品${extra?.damageDesc ? extra.damageDesc : '存在破损'}，不适合捐赠，予以拒收。现场处理人：${handler}。请家长在页面确认自行带回或走环保回收流程。`
+        : `${charity.orgName} 因${reasonText}无法接收该物品。现场处理人：${handler}。请家长选择自行带回、寄存社区或预约下一场活动。`,
+      by: handler, role: 'charity', changeItemStatus: false,
+    })
+  }
+
+  /** 家长确认拒收/超限物品的最终去向；同时办结相关异常 */
+  function disposeReturnedItem(
+    itemId: string,
+    route: DisposalRoute,
+    payload: { handler: string; note?: string; nextEvent?: string; recycler?: string; actor: string; role?: User['role'] },
+  ): boolean {
+    const item = itemById(itemId)
+    if (!item) return false
+    if (!['charity_returned', 'no_exchange', 'disputed'].includes(item.status)) return false
+
+    const nextStatus: ItemStatus =
+      route === 'take_back' ? 'taken_back'
+        : route === 'community_store' ? 'stored'
+          : route === 'next_event' ? 'next_event' : 'recycled'
+    item.status = nextStatus
+    item.disposal = {
+      route,
+      handler: payload.handler,
+      at: Date.now(),
+      note: payload.note,
+      nextEvent: payload.nextEvent,
+      recycler: payload.recycler,
+      donationId: donationByItem(item.id)?.id,
     }
+    const actionMap: Record<DisposalRoute, string> = {
+      take_back: '确认自行带回',
+      community_store: '确认寄存社区',
+      next_event: '预约下一场活动',
+      recycle: '确认环保回收',
+    }
+    const detailMap: Record<DisposalRoute, string> = {
+      take_back: `物品由家长带回；现场处理人：${payload.handler}`,
+      community_store: `${payload.note ?? '寄存社区服务站'}；现场处理人：${payload.handler}`,
+      next_event: `已登记${payload.nextEvent ?? '下一场活动'}；现场处理人：${payload.handler}`,
+      recycle: `送往${payload.recycler ?? '指定回收点'}；现场处理人：${payload.handler}`,
+    }
+    pushHistory(item, payload.actor, actionMap[route], detailMap[route])
+
+    // 自动办结该物品关联的公益拒收/超限异常
+    for (const inc of db.value.incidents) {
+      if (inc.itemId === item.id && inc.status !== 'resolved'
+        && ['charity_capacity', 'charity_damaged'].includes(inc.type)) {
+        inc.status = 'resolved'
+        inc.resolution = detailMap[route]
+        inc.logs.push({ at: Date.now(), actor: payload.actor, role: payload.role ?? 'parent', message: `【处理结论】${detailMap[route]}` })
+      }
+    }
+    return true
+  }
+
+  /** 活动阶段推进时，把现场认定为严重破损、无法继续流通的物品直接送入环保回收 */
+  function recycleItem(
+    itemId: string,
+    payload: { handler: string; recycler: string; note?: string; actor: string },
+  ): boolean {
+    const item = itemById(itemId)
+    if (!item) return false
+    return disposeReturnedItem(itemId, 'recycle', {
+      handler: payload.handler, recycler: payload.recycler, note: payload.note, actor: payload.actor,
+    })
   }
 
   // ---------- 活动阶段 ----------
@@ -396,6 +650,10 @@ export const useDataStore = defineStore('data', () => {
     const donated = all.filter((i) => i.status === 'donated')
     const takenBack = all.filter((i) => i.status === 'taken_back')
     const noExchange = all.filter((i) => i.status === 'no_exchange')
+    const stored = all.filter((i) => i.status === 'stored')
+    const nextEvent = all.filter((i) => i.status === 'next_event')
+    const recycled = all.filter((i) => i.status === 'recycled')
+    const charityReturned = all.filter((i) => i.status === 'charity_returned')
 
     // 品类供需缺口（仅统计可交换品类）
     const gap = (['toy', 'book', 'clothing', 'study', 'baby'] as Category[]).map((c) => {
@@ -423,20 +681,26 @@ export const useDataStore = defineStore('data', () => {
       donated,
       takenBack,
       noExchange,
+      stored,
+      nextEvent,
+      recycled,
+      charityReturned,
       gap,
     }
   })
 
   return {
-    db, event, users, items, matches, incidents, donations,
-    userById, itemById, itemByCode, matchById, itemsByParent,
+    db, event, users, items, matches, incidents, donations, handovers, charityProfiles,
+    userById, itemById, itemByCode, matchById, donationByItem, handoverByDonation, handoverByItem,
+    charityProfile, itemsByParent,
     pendingItems, approvedPool, freeZoneItems, reservedItems, arrivedItems,
     matchesForItem, activeMatchForItem, incidentsForItem, openIncidents, boothUsed,
     submitItem, reviewItem,
     runAutoMatch, proposeFromRecommendation, recommendationsFor, respondMatch, moveUnmatchedToFreeZone,
     checkIn, confirmExchange, onsiteFreeExchange, markNoShow, takeBack,
     reportIncident, addIncidentLog, resolveIncident,
-    requestDonation, respondDonation,
+    requestDonation, acceptDonation, declineDonation, disposeReturnedItem, recycleItem,
+    saveCharityProfile, checkEligibility, quotaOf, quotaUsed, charityCapacityInfo,
     setPhase, resetAll, summary,
   }
 })

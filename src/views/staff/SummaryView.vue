@@ -19,7 +19,13 @@
         <div class="bar-row"><span class="bar-label">公益转捐</span><div class="bar-track"><div class="bar-fill" style="background: var(--pink)" :style="{ width: pct(summary.donated.length) }" /></div><span class="bar-num">{{ summary.donated.length }} 件</span></div>
         <div class="bar-row"><span class="bar-label">无人交换</span><div class="bar-track"><div class="bar-fill" style="background: var(--orange)" :style="{ width: pct(summary.noExchange.length) }" /></div><span class="bar-num">{{ summary.noExchange.length }} 件</span></div>
         <div class="bar-row"><span class="bar-label">家长带回</span><div class="bar-track"><div class="bar-fill" style="background: var(--gray)" :style="{ width: pct(summary.takenBack.length) }" /></div><span class="bar-num">{{ summary.takenBack.length }} 件</span></div>
+        <div class="bar-row"><span class="bar-label">寄存社区</span><div class="bar-track"><div class="bar-fill" style="background: var(--indigo)" :style="{ width: pct(summary.stored.length) }" /></div><span class="bar-num">{{ summary.stored.length }} 件</span></div>
+        <div class="bar-row"><span class="bar-label">已约下一场</span><div class="bar-track"><div class="bar-fill" style="background: var(--purple)" :style="{ width: pct(summary.nextEvent.length) }" /></div><span class="bar-num">{{ summary.nextEvent.length }} 件</span></div>
+        <div class="bar-row"><span class="bar-label">环保回收</span><div class="bar-track"><div class="bar-fill" style="background: var(--teal)" :style="{ width: pct(summary.recycled.length) }" /></div><span class="bar-num">{{ summary.recycled.length }} 件</span></div>
         <div class="bar-row"><span class="bar-label">未到场</span><div class="bar-track"><div class="bar-fill red" :style="{ width: pct(summary.noShow.length) }" /></div><span class="bar-num">{{ summary.noShow.length }} 件</span></div>
+        <div v-if="summary.charityReturned.length" class="notice warn mt12">
+          ⏳ 还有 <b>{{ summary.charityReturned.length }}</b> 件被公益机构拒收/超限的物品<b>待家长确认去向</b>，请在异常处置台跟进。
+        </div>
       </div>
 
       <div class="card">
@@ -56,13 +62,25 @@
       </div>
 
       <div class="card">
-        <div class="card-title">💚 捐赠去向（{{ summary.donated.length }} 件）</div>
+        <div class="card-title">💚 捐赠去向与交接清单（{{ summary.donated.length }} 件）</div>
         <template v-if="donationRows.length">
-          <div v-for="row in donationRows" :key="row.org" class="mb12">
+          <div v-for="row in donationRows" :key="row.org" class="mb16">
             <div style="font-weight: 700">🏢 {{ row.org }} <span class="badge pink">{{ row.items.length }} 件</span></div>
-            <div class="tag-list mt8">
-              <span v-for="i in row.items" :key="i.id" class="tag">{{ i.name }}（{{ data.userById(i.parentId)?.name }}）</span>
-            </div>
+            <table class="table mt8">
+              <thead><tr><th>物品（家长）</th><th>交接清单</th><th>运输时间</th><th>开票</th><th>经办人</th></tr></thead>
+              <tbody>
+                <tr v-for="i in row.items" :key="i.id">
+                  <td>{{ i.name }}（{{ data.userById(i.parentId)?.name }}）</td>
+                  <td class="small">
+                    <b>{{ hvOf(i.id)?.id.replace('hv', 'HV').toUpperCase() ?? '—' }}</b>
+                    <div class="muted">{{ hvOf(i.id)?.destination }}</div>
+                  </td>
+                  <td class="small muted">{{ hvOf(i.id)?.transportTime ?? '—' }}</td>
+                  <td class="small">{{ hvOf(i.id)?.invoiceNeeded ? `🧾 ${hvOf(i.id)?.invoiceTitle || '已登记'}` : '无需' }}</td>
+                  <td class="small muted">{{ hvOf(i.id)?.handler ?? '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </template>
         <EmptyState v-else icon="💚" text="暂无捐赠记录" />
@@ -123,4 +141,8 @@ const donationRows = computed(() => {
   }
   return rows
 })
+
+function hvOf(itemId: string) {
+  return data.handovers.find((h) => h.itemId === itemId)
+}
 </script>

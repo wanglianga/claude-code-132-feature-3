@@ -31,6 +31,14 @@
 
         <div v-if="inc.resolution" class="notice success mt12">✅ 处理结论：{{ inc.resolution }}</div>
 
+        <div
+          v-if="inc.status !== 'resolved' && ['charity_capacity', 'charity_damaged'].includes(inc.type) && itemOf(inc)?.status === 'charity_returned'"
+          class="notice warn mt12"
+        >
+          <div>👉 该物品需要您确认最终去向（带回 / 寄存社区 / 预约下一场；破损物品可选择环保回收）。</div>
+          <router-link to="/parent/items" class="btn sm primary mt8">去「我的物品」确认去向</router-link>
+        </div>
+
         <div v-if="inc.status !== 'resolved'" class="row mt12">
           <input
             v-model="drafts[inc.id]"
